@@ -1,0 +1,306 @@
+import { Hono } from "hono";
+
+const swaggerRoutes = new Hono();
+
+const openApiSpec = {
+  openapi: "3.0.3",
+  info: {
+    title: "Bank Ads API",
+    version: "1.0.0",
+    description: "API documentation for serving and managing ads.",
+  },
+  servers: [
+    {
+      url: "/",
+      description: "Current server",
+    },
+  ],
+  tags: [
+    { name: "Health" },
+    { name: "Ads" },
+  ],
+  components: {
+    securitySchemes: {
+      bearerAuth: {
+        type: "http",
+        scheme: "bearer",
+        bearerFormat: "JWT",
+      },
+    },
+    schemas: {
+      HealthResponse: {
+        type: "object",
+        properties: {
+          status: { type: "string", example: "ok" },
+          message: { type: "string", example: "API is healthy" },
+          database: { type: "string", example: "connected" },
+          timestamp: { type: "string", format: "date-time" },
+        },
+      },
+      ServeAdRequest: {
+        type: "object",
+        required: ["balance"],
+        properties: {
+          balance: { type: "number", example: 120000 },
+          channel: {
+            type: "string",
+            enum: ["ATM", "mobile", "web", "USSD"],
+            default: "ATM",
+          },
+        },
+      },
+      ServeAdResponse: {
+        type: "object",
+        properties: {
+          adId: { type: "string", example: "67c0f4d8e3db53a6d8e8b9f1" },
+          title: { type: "string", example: "Premium Loan Offer" },
+          imageUrl: { type: "string", example: "https://cdn.site/ad.jpg" },
+          videoUrl: { type: "string", example: "https://cdn.site/ad.mp4" },
+          cta: { type: "string", example: "Apply Now" },
+        },
+      },
+      CreateAdRequest: {
+        type: "object",
+        required: ["title", "imageUrl", "segments", "startDate", "endDate"],
+        properties: {
+          title: { type: "string", example: "Premium Loan Offer" },
+          imageUrl: { type: "string", example: "https://cdn.site/ad.jpg" },
+          videoUrl: { type: "string", example: "https://cdn.site/ad.mp4" },
+          cta: { type: "string", example: "Apply Now" },
+          segments: {
+            type: "array",
+            items: { type: "string", enum: ["low", "mass", "affluent", "hnw"] },
+            example: ["mass", "affluent"],
+          },
+          channels: {
+            type: "array",
+            items: { type: "string", enum: ["ATM", "mobile", "web", "USSD"] },
+            example: ["ATM", "mobile"],
+          },
+          startDate: {
+            type: "string",
+            format: "date-time",
+            example: "2026-02-14T00:00:00.000Z",
+          },
+          endDate: {
+            type: "string",
+            format: "date-time",
+            example: "2026-03-14T00:00:00.000Z",
+          },
+          status: { type: "string", enum: ["active", "inactive"], example: "active" },
+          priority: { type: "number", example: 10 },
+          advertiser: {
+            type: "object",
+            properties: {
+              name: { type: "string", example: "ACME Inc." },
+              contactEmail: { type: "string", example: "ads@acme.com" },
+            },
+          },
+        },
+      },
+      ImpressionRequest: {
+        type: "object",
+        required: ["adId"],
+        properties: {
+          adId: { type: "string", example: "67c0f4d8e3db53a6d8e8b9f1" },
+        },
+      },
+      MessageResponse: {
+        type: "object",
+        properties: {
+          message: { type: "string" },
+        },
+      },
+      ErrorResponse: {
+        type: "object",
+        properties: {
+          error: { type: "string" },
+        },
+      },
+    },
+  },
+  paths: {
+    "/api/v1/health": {
+      get: {
+        tags: ["Health"],
+        summary: "Health check",
+        responses: {
+          "200": {
+            description: "Service health",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/HealthResponse" },
+              },
+            },
+          },
+        },
+      },
+    },
+    "/api/v1/ads/serve": {
+      post: {
+        tags: ["Ads"],
+        summary: "Serve ad by customer balance/channel",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/ServeAdRequest" },
+            },
+          },
+        },
+        responses: {
+          "200": {
+            description: "Ad returned",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/ServeAdResponse" },
+              },
+            },
+          },
+          "404": {
+            description: "No ad found",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/MessageResponse" },
+              },
+            },
+          },
+          "500": {
+            description: "Server error",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/ErrorResponse" },
+              },
+            },
+          },
+        },
+      },
+    },
+    "/api/v1/ads/create": {
+      post: {
+        tags: ["Ads"],
+        summary: "Create ad",
+        security: [{ bearerAuth: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/CreateAdRequest" },
+            },
+          },
+        },
+        responses: {
+          "200": {
+            description: "Ad created",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    message: { type: "string", example: "Ad created" },
+                    ads: { type: "object" },
+                  },
+                },
+              },
+            },
+          },
+          "400": {
+            description: "Validation error",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/ErrorResponse" },
+              },
+            },
+          },
+          "401": {
+            description: "Unauthorized",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/ErrorResponse" },
+              },
+            },
+          },
+          "500": {
+            description: "Server error",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/ErrorResponse" },
+              },
+            },
+          },
+        },
+      },
+    },
+    "/api/v1/ads/impression": {
+      post: {
+        tags: ["Ads"],
+        summary: "Track ad impression",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/ImpressionRequest" },
+            },
+          },
+        },
+        responses: {
+          "200": {
+            description: "Impression saved",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/MessageResponse" },
+              },
+            },
+          },
+          "400": {
+            description: "Validation error",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/ErrorResponse" },
+              },
+            },
+          },
+          "500": {
+            description: "Server error",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/ErrorResponse" },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+};
+
+swaggerRoutes.get("/openapi.json", (c) => c.json(openApiSpec));
+
+swaggerRoutes.get("/docs", (c) => {
+  const html = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Bank Ads API Docs</title>
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css"
+    />
+  </head>
+  <body>
+    <div id="swagger-ui"></div>
+    <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+    <script>
+      window.ui = SwaggerUIBundle({
+        url: "/api/v1/openapi.json",
+        dom_id: "#swagger-ui",
+      });
+    </script>
+  </body>
+</html>`;
+
+  return c.html(html);
+});
+
+export default swaggerRoutes;
