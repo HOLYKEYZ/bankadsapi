@@ -47,6 +47,18 @@ export const TARGETING_CONFIG = {
     maxRequests: 100,
   },
 
+  /** Segment derivation thresholds */
+  segmentThresholds: {
+    low: 50000,
+    mass: 200000,
+    affluent: 1000000,
+  },
+
+  /** Scoring config */
+  score: {
+     recencyMaxAgeDays: 30,
+  },
+
   /** User profile TTL in Redis (seconds) */
   userProfile: {
     ttl: 86400,
@@ -55,9 +67,9 @@ export const TARGETING_CONFIG = {
 
 /** Segment derivation from balance */
 export const getSegment = (balance: number): string => {
-  if (balance < 50000) return "low";
-  if (balance < 200000) return "mass";
-  if (balance < 1000000) return "affluent";
+  if (balance < TARGETING_CONFIG.segmentThresholds.low) return "low";
+  if (balance < TARGETING_CONFIG.segmentThresholds.mass) return "mass";
+  if (balance < TARGETING_CONFIG.segmentThresholds.affluent) return "affluent";
   return "hnw";
 };
 
