@@ -15,6 +15,6 @@ adsRoutes.post("/create", apiKeyAuth, createAd);
 adsRoutes.post("/impression", apiKeyAuth, rateLimiter, trackImpression);
 
 // POST /ads/click — API key protected + rate limited
-adsRoutes.post("/click", rateLimiter, apiKeyAuth, trackClick);
+adsRoutes.post("/click", apiKeyAuth, rateLimiter, trackClick);
 
 export default adsRoutes;
