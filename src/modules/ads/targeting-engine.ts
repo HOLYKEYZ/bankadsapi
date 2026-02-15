@@ -95,6 +95,13 @@ export const recordImpression = async (
     profile.impressions = profile.impressions.filter(
       (imp) => imp.timestamp > oneDayAgo,
     );
+
+    // Hard cap to prevent memory leaks under heavy traffic
+    const MAX_IMPRESSIONS = 500;
+    if (profile.impressions.length > MAX_IMPRESSIONS) {
+      profile.impressions = profile.impressions.slice(-MAX_IMPRESSIONS);
+    }
+
     profile.lastUpdated = now;
 
     const key = getUserProfileKey(customerId);
@@ -140,27 +147,36 @@ export const filterByFrequencyCap = (
   const oneDayAgo = now - 86400 * 1000;
   const cooldownMs = cooldownHours * 3600 * 1000;
 
+  // Pre-build lookup map: adId -> { count, lastShown } (O(impressions) once)
+  const impressionMap = new Map<string, { count: number; lastShown: number }>();
+  for (const imp of profile.impressions) {
+    if (imp.timestamp <= oneDayAgo) continue;
+    const entry = impressionMap.get(imp.adId);
+    if (entry) {
+      entry.count++;
+      entry.lastShown = Math.max(entry.lastShown, imp.timestamp);
+    } else {
+      impressionMap.set(imp.adId, { count: 1, lastShown: imp.timestamp });
+    }
+  }
+
   const excluded: string[] = [];
 
   const eligible = ads.filter((ad) => {
     const adId = ad._id.toString();
-    const todayImpressions = profile.impressions.filter(
-      (imp) => imp.adId === adId && imp.timestamp > oneDayAgo,
-    );
+    const entry = impressionMap.get(adId);
+
+    if (!entry) return true; // Never shown — eligible
 
     // Check daily cap
-    if (todayImpressions.length >= maxImpressionsPerDay) {
-      excluded.push(`${adId}:daily_cap(${todayImpressions.length}/${maxImpressionsPerDay})`);
+    if (entry.count >= maxImpressionsPerDay) {
+      excluded.push(`${adId}:daily_cap(${entry.count}/${maxImpressionsPerDay})`);
       return false;
     }
 
     // Check cooldown
-    const lastShown = todayImpressions.reduce(
-      (max, imp) => Math.max(max, imp.timestamp),
-      0,
-    );
-    if (lastShown > 0 && now - lastShown < cooldownMs) {
-      const minutesAgo = Math.round((now - lastShown) / 60000);
+    if (now - entry.lastShown < cooldownMs) {
+      const minutesAgo = Math.round((now - entry.lastShown) / 60000);
       excluded.push(`${adId}:cooldown(${minutesAgo}min_ago)`);
       return false;
     }

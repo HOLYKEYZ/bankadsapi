@@ -119,7 +119,13 @@ async function checkRateLimit(
   pipeline.expire(key, windowSeconds);
 
   const results = await pipeline.exec();
-  const count = (results?.[2]?.[1] as number) ?? 0;
+
+  // Check for pipeline errors — fail open if any command errored
+  if (!results || results[2]?.[0]) {
+    return { exceeded: false, count: 0 };
+  }
+
+  const count = (results[2][1] as number) ?? 0;
 
   return { exceeded: count > maxRequests, count };
 }

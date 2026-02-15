@@ -26,6 +26,13 @@ export const serveAds = async (c: any) => {
       return c.json({ error: "customerId is required" }, 400);
     }
 
+    // Input sanitization: cap length and strip cache-key-breaking chars
+    const MAX_CUSTOMER_ID_LEN = 64;
+    if (typeof customerId !== "string" || customerId.length > MAX_CUSTOMER_ID_LEN) {
+      return c.json({ error: `customerId must be a string of max ${MAX_CUSTOMER_ID_LEN} characters` }, 400);
+    }
+    const safeCustomerId = customerId.replace(/[:\s]/g, "_");
+
     if (typeof balance !== "number" || balance < 0) {
       return c.json({ error: "balance must be a non-negative number" }, 400);
     }
@@ -35,7 +42,7 @@ export const serveAds = async (c: any) => {
     log.push(`segment=${segment} channel=${channel} slot=${currentSlot}`);
 
     // ── Step 1: Check personalized cache ──────────────────────────────
-    const cacheKey = `ad:${segment}:${channel}:${customerId}`;
+    const cacheKey = `ad:${segment}:${channel}:${safeCustomerId}`;
 
     if (isRedisAvailable()) {
       try {
@@ -54,11 +61,11 @@ export const serveAds = async (c: any) => {
     // ── Step 2: Get user profile ──────────────────────────────────────
     let userProfile;
     try {
-      userProfile = await getUserProfile(customerId);
+      userProfile = await getUserProfile(safeCustomerId);
       log.push(`profile_impressions=${userProfile.impressions.length}`);
     } catch {
       // Fallback: empty profile if Redis fails
-      userProfile = { customerId, impressions: [], lastUpdated: Date.now() };
+      userProfile = { customerId: safeCustomerId, impressions: [], lastUpdated: Date.now() };
       log.push("profile=FALLBACK");
     }
 
@@ -72,6 +79,7 @@ export const serveAds = async (c: any) => {
       endDate: { $gte: now },
     })
       .sort({ priority: -1 })
+      .maxTimeMS(2000)
       .lean()) as unknown as AdDocument[];
 
     log.push(`db_matches=${eligibleAds.length}`);
@@ -128,7 +136,7 @@ export const serveAds = async (c: any) => {
     };
 
     // ── Step 7: Update user profile (non-blocking) ────────────────────
-    recordImpression(customerId, winner.ad._id.toString()).catch((err) =>
+    recordImpression(safeCustomerId, winner.ad._id.toString()).catch((err) =>
       console.error("[serveAds] recordImpression error:", err),
     );
 
@@ -163,7 +171,7 @@ export const serveAds = async (c: any) => {
         status: "active",
         startDate: { $lte: new Date() },
         endDate: { $gte: new Date() },
-      }).sort({ priority: -1 });
+      }).sort({ priority: -1 }).maxTimeMS(2000);
 
       if (ad) {
         return c.json({
@@ -202,40 +210,11 @@ export const createAd = async (c: any) => {
 
     const ads = await Ads.create(body);
 
-    // Invalidate relevant cache keys
+    // Fire-and-forget cache invalidation (non-blocking)
     if (isRedisAvailable()) {
-      try {
-        const segments = Array.isArray(body.segments) ? body.segments : [body.segments];
-        const channels = Array.isArray(body.channels) ? body.channels : ["ATM"];
-        const keys: string[] = [];
-
-        for (const seg of segments) {
-          for (const ch of channels) {
-            const pattern = `ad:${seg}:${ch}:*`;
-            let cursor = "0";
-            do {
-              const [nextCursor, matchedKeys] = await redis.scan(
-                cursor,
-                "MATCH",
-                pattern,
-                "COUNT",
-                100,
-              );
-              cursor = nextCursor;
-              if (matchedKeys.length > 0) {
-                keys.push(...matchedKeys);
-              }
-            } while (cursor !== "0");
-          }
-        }
-
-        if (keys.length > 0) {
-          await redis.del(...keys);
-          console.log(`[createAd] Invalidated ${keys.length} cache keys`);
-        }
-      } catch (err) {
-        console.warn("[createAd] Cache invalidation error:", err);
-      }
+      invalidateCacheForAd(body).catch((err) =>
+        console.warn("[createAd] Cache invalidation error:", err),
+      );
     }
 
     return c.json({
@@ -291,3 +270,40 @@ export const trackClick = async (c: any) => {
     return c.json({ error: "Failed to track click" }, 500);
   }
 };
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+/**
+ * Async cache invalidation using SCAN (non-blocking).
+ * Runs as fire-and-forget from createAd so the response isn't delayed.
+ */
+async function invalidateCacheForAd(body: any): Promise<void> {
+  const segments = Array.isArray(body.segments) ? body.segments : [body.segments];
+  const channels = Array.isArray(body.channels) ? body.channels : ["ATM"];
+  const keys: string[] = [];
+
+  for (const seg of segments) {
+    for (const ch of channels) {
+      const pattern = `ad:${seg}:${ch}:*`;
+      let cursor = "0";
+      do {
+        const [nextCursor, matchedKeys] = await redis.scan(
+          cursor,
+          "MATCH",
+          pattern,
+          "COUNT",
+          100,
+        );
+        cursor = nextCursor;
+        if (matchedKeys.length > 0) {
+          keys.push(...matchedKeys);
+        }
+      } while (cursor !== "0");
+    }
+  }
+
+  if (keys.length > 0) {
+    await redis.del(...keys);
+    console.log(`[createAd] Invalidated ${keys.length} cache keys`);
+  }
+}

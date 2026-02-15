@@ -11,10 +11,10 @@ adsRoutes.post("/serve", rateLimiter, serveAds);
 // POST /ads/create — API key protected
 adsRoutes.post("/create", apiKeyAuth, createAd);
 
-// POST /ads/impression — API key protected
-adsRoutes.post("/impression", apiKeyAuth, trackImpression);
+// POST /ads/impression — API key protected + rate limited
+adsRoutes.post("/impression", rateLimiter, apiKeyAuth, trackImpression);
 
-// POST /ads/click — API key protected
-adsRoutes.post("/click", apiKeyAuth, trackClick);
+// POST /ads/click — API key protected + rate limited
+adsRoutes.post("/click", rateLimiter, apiKeyAuth, trackClick);
 
 export default adsRoutes;
