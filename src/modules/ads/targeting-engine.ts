@@ -227,7 +227,7 @@ export const scoreAds = (ads: AdDocument[]): ScoredAd[] => {
     // 3. Recency score — newer campaigns score higher
     const startTs = ad.startDate instanceof Date ? ad.startDate.getTime() : new Date(ad.startDate as unknown as string).getTime();
     const ageMs = now - startTs;
-    const maxAge = 30 * 86400 * 1000; // 30 days
+    const maxAge = TARGETING_CONFIG.score.recencyMaxAgeDays * 86400 * 1000;
     const recencyScore = Math.max(0, 1 - ageMs / maxAge);
 
     // 4. Freshness score — less shown ads get priority
