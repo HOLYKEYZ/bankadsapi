@@ -47,6 +47,18 @@ export const TARGETING_CONFIG = {
     maxRequests: 100,
   },
 
+  /** Segment derivation thresholds */
+  segmentThresholds: {
+    low: 50000,
+    mass: 200000,
+    affluent: 1000000,
+  },
+
+  /** Scoring config */
+  score: {
+     recencyMaxAgeDays: 30,
+  },
+
   /** User profile TTL in Redis (seconds) */
   userProfile: {
     ttl: 86400,

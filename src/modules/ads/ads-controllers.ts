@@ -16,8 +16,11 @@ export const serveAds = async (c: any) => {
   const startTime = Date.now();
   const log: string[] = [];
 
+  let body: any = {};
+
   try {
-    const { balance, channel = "ATM", customerId } = await c.req.json();
+    body = await c.req.json().catch(() => ({}));
+    const { balance, channel = "ATM", customerId } = body;
 
     if (!customerId) {
       return c.json({ error: "customerId is required" }, 400);
@@ -151,7 +154,7 @@ export const serveAds = async (c: any) => {
 
     // ── Fallback: Basic serving without targeting ─────────────────────
     try {
-      const { balance = 0, channel = "ATM" } = await c.req.json().catch(() => ({}));
+      const { balance = 0, channel = "ATM" } = body;
       const segment = getSegment(balance);
 
       const ad = await Ads.findOne({
@@ -209,8 +212,20 @@ export const createAd = async (c: any) => {
         for (const seg of segments) {
           for (const ch of channels) {
             const pattern = `ad:${seg}:${ch}:*`;
-            const matchedKeys = await redis.keys(pattern);
-            keys.push(...matchedKeys);
+            let cursor = "0";
+            do {
+              const [nextCursor, matchedKeys] = await redis.scan(
+                cursor,
+                "MATCH",
+                pattern,
+                "COUNT",
+                100,
+              );
+              cursor = nextCursor;
+              if (matchedKeys.length > 0) {
+                keys.push(...matchedKeys);
+              }
+            } while (cursor !== "0");
           }
         }
 
